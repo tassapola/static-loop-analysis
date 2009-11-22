@@ -1,1 +1,1 @@
-../bin/cilly --doloopcounttor loop-test1.c
+../bin/cilly --doloopcount loop-test1.c
