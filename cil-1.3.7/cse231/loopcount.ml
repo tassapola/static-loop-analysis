@@ -1,69 +1,59 @@
-open Pretty
 open Cil
+open Pretty
 open Cfg
-open List
-open Dominators
-module E = Errormsg
-module H = Hashtbl
+open Printf
 
-module IntMap = Map.Make (struct
-                              type t = int
-                              let compare x y = x - y
-                            end)
+module IntMap = Map.Make(struct type t =  int let compare = compare end);;
+type loop_count_type = int IntMap.t;;
 
-type reg = {
-    rvi : varinfo;
-    rval : exp;
-  }
+let init_IntMap = ref IntMap.empty;;
 
-type t = reg IntMap.t
+let update_loop_count(s:stmt) (loop_count_map: loop_count_type ref) = 
+	try
+		let oldvalue = IntMap.find s.sid !loop_count_map in
+		IntMap.add s.sid (oldvalue+1) !loop_count_map
+	with Not_found -> IntMap.add s.sid 1 !loop_count_map
 
-let extractVar rMap (x:instr) = begin
-	match x with
-		Set(lval,exp,location) -> begin
-			match lval with
-				Var vi,o -> begin
-					ignore(Pretty.printf "\n-->%d %s %a\n" vi.vid vi.vname d_exp (exp));
-					IntMap.add vi.vid {rvi = vi; rval = exp} rMap;					
-					end								
-				|_ -> rMap;
-				end
-		|_ -> rMap;
+
+let find_next_stmt_loop(s:stmt) (loop_count_map: loop_count_type ref) : stmt =
+	try
+	 loop_count_map := update_loop_count s loop_count_map;
+		ignore(Printf.printf "Loop count: %d\n" (IntMap.find s.sid !loop_count_map));
+		List.hd s.succs;
+	with Not_found -> 
+		(List.hd s.succs);;	
+
+let rec iterate(s:stmt) (loop_count_map:loop_count_type ref) : unit = 
+	ignore(Pretty.printf "\n\n===STATEMENT: %a===\n" d_stmt s);
+
+	let next_stmt = match s.skind with
+	Instr (a) -> List.hd s.succs;
+	| Return (a,b) -> List.hd s.succs;
+	| Goto (_,_) -> List.hd s.succs;
+	| Break (_) -> List.hd s.succs;
+	| Continue (_) -> List.hd s.succs;
+	| If (_,_,_,_) -> List.hd s.succs;
+	| Switch (_,_,_,_) -> List.hd s.succs;
+	| Loop (_,_,_,_) -> find_next_stmt_loop s loop_count_map;
+	| _ -> List.hd s.succs;
+	in
+	iterate next_stmt loop_count_map;;
+
+let main (f:file) : unit = begin
+	let c = computeFileCFG f in
+	let stmt_list = allStmts f in
+	iterate (List.hd stmt_list) init_IntMap;
 end
 
-let extractStmt rMap (s:stmt) = begin
-	match s.skind with
- 		Instr(inst_list) -> 
-			let rec extractInst = function
-				[] -> ()
-				| x :: xs -> begin
-					rMap = extractVar rMap x;
-					extractInst xs;
-					end	
-			in
-				extractInst inst_list;
-		|_ -> () 
-end
+let feature : featureDescr = 
+  { fd_name = "loopcount";              
+    fd_enabled = ref false;
+    fd_description = "Static loop analysis";
+    fd_extraopt = [];
+    fd_doit = 
+    (function (f: file) -> 
+	main f);
+    fd_post_check = false;
 
-class printCFGVisitor = object
-	inherit nopCilVisitor
+  } 
 
-	method vstmt (s:stmt) =	 
-		ignore(Pretty.printf "===================================================");
-		let rMap = IntMap.empty in
-		ignore(extractStmt rMap s);		
-		DoChildren
-end
-
-let feature : featureDescr =
-  { fd_name = "loopcount";
-  fd_enabled = ref false;
-  fd_description = "output loop count to stdout";
-  fd_extraopt = [];
-  fd_doit =
-  (function (f: file) ->
-   Cfg.computeFileCFG f;
-   let eVisitor = new printCFGVisitor in
-   visitCilFileSameGlobals eVisitor f);
-  fd_post_check = true;
-  }
