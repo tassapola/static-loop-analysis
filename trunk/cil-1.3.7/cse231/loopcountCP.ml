@@ -69,10 +69,9 @@ let extractStmt (rMap : t ref) (s:stmt) =
     Instr(inst_list) -> 
       let rec extractInst = function
         [] -> ()
-	| x :: xs -> begin
-		       rMap := extractVar (!rMap) x;
-		       extractInst xs;
-		     end	
+	| x :: xs ->   
+          rMap := extractVar (!rMap) x;
+	  extractInst xs;
       in
         extractInst inst_list;
     |_ -> () 
