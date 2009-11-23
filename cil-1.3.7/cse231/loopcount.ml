@@ -14,6 +14,9 @@ type t = reg IntMap.t
 
 type ifoutput = True | False | Unknown
 
+let var_IntMap = ref IntMap.empty
+let init_IntMap = ref IntMap.empty
+
 class rewriteExpClass (regFile : t) =
 object
   inherit nopCilVisitor
@@ -70,14 +73,11 @@ let extractStmt (rMap : t ref) (s:stmt) =
 
 type loop_count_type = int IntMap.t
 
-let var_IntMap = ref IntMap.empty
-let init_IntMap = ref IntMap.empty
-
 let update_loop_count(s:stmt) (loop_count_map: loop_count_type ref) = 
 	try
 		let oldvalue = IntMap.find s.sid !loop_count_map in
 		IntMap.add s.sid (oldvalue+1) !loop_count_map
-	with Not_found -> IntMap.add s.sid 1 !loop_count_map
+	with Not_found -> IntMap.add s.sid 0 !loop_count_map
 
 
 let find_next_stmt_loop(s:stmt) (loop_count_map: loop_count_type ref) : stmt =
@@ -88,16 +88,16 @@ let find_next_stmt_loop(s:stmt) (loop_count_map: loop_count_type ref) : stmt =
 	with Not_found -> 
 		(List.hd s.succs);;	
 
-let rec iterate(s:stmt) (loop_count_map:loop_count_type ref) : unit = 
+let rec iterate (s:stmt) (loop_count_map:loop_count_type ref) : unit = 
 	ignore(Pretty.printf "\n\n===STATEMENT: %a===\n" d_stmt s);
-
+  extractStmt var_IntMap s;
 	let next_stmt = match s.skind with
 	Instr (a) -> List.hd s.succs;
 	| Return (a,b) -> List.hd s.succs;
 	| Goto (_,_) -> List.hd s.succs;
 	| Break (_) -> List.hd s.succs;
 	| Continue (_) -> List.hd s.succs;
-	| If (_,_,_,_) -> List.hd s.succs;
+	| If (e,_,_,_) -> (if not (evalIfExp !var_IntMap e) then List.hd (List.tl s.succs) else List.hd s.succs);
 	| Switch (_,_,_,_) -> List.hd s.succs;
 	| Loop (_,_,_,_) -> find_next_stmt_loop s loop_count_map;
 	| _ -> List.hd s.succs;
@@ -105,9 +105,9 @@ let rec iterate(s:stmt) (loop_count_map:loop_count_type ref) : unit =
 	iterate next_stmt loop_count_map;;
 
 let main (f:file) : unit = begin
-	let c = computeFileCFG f in
+	let c = computeFileCFG f in 
 	let stmt_list = allStmts f in
-	iterate (List.hd stmt_list) init_IntMap;
+		iterate (List.hd stmt_list) init_IntMap ;
 end
 
 let feature : featureDescr = 
