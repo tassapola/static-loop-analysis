@@ -18,39 +18,37 @@ type reg = {
 
 type t = reg IntMap.t
 
-let extractVar rMap (x:instr) = begin
+let extractVar rMap (x:instr) =
 	match x with
-		Set(lval,exp,location) -> begin
-			match lval with
-				Var vi,o -> begin
+		Set(lval,exp,location) -> 
+			(match lval with
+				Var vi,o -> 
 					ignore(Pretty.printf "\n-->%d %s %a\n" vi.vid vi.vname d_exp (exp));
-					IntMap.add vi.vid {rvi = vi; rval = exp} rMap;					
-					end								
-				|_ -> rMap;
-				end
-		|_ -> rMap;
-end
+					IntMap.add vi.vid {rvi = vi; rval = exp} rMap;													
+				|_ -> rMap)
+		|_ -> rMap
 
-let extractStmt rMap (s:stmt) = begin
+let extractStmt (rMap:reg IntMap.t ref) (s:stmt) = 
 	match s.skind with
  		Instr(inst_list) -> 
 			let rec extractInst = function
 				[] -> ()
 				| x :: xs -> begin
-					rMap = extractVar rMap x;
+					rMap := extractVar !rMap x;
+					if IntMap.is_empty !rMap then ignore(Pretty.printf "Empty\n" );
+					ignore(IntMap.iter (fun vid v -> ignore(Pretty.printf "\n>>>> %d %a\n" vid d_exp (v.rval))) !rMap);
 					extractInst xs;
 					end	
 			in
-				extractInst inst_list;
-		|_ -> () 
-end
+				extractInst inst_list
+		|_ -> ()
 
-class printCFGVisitor = object
+class printCFGVisitor = 
+object
 	inherit nopCilVisitor
-
+	val rMap = ref IntMap.empty
 	method vstmt (s:stmt) =	 
 		ignore(Pretty.printf "===================================================");
-		let rMap = IntMap.empty in
 		ignore(extractStmt rMap s);		
 		DoChildren
 end
