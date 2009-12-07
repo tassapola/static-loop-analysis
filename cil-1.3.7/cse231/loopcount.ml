@@ -50,8 +50,8 @@ let extractVar rMap (x:instr) =
       (match lval with
          Var vi,o ->
            let e' = evalExp rMap exp in 
-             ignore(Pretty.printf "\n[old]-->%d %s %a\n" vi.vid vi.vname d_exp (exp));
-             ignore(Pretty.printf "\n[new]-->%d %s %a\n" vi.vid vi.vname d_exp (e'));
+             (*ignore(Pretty.printf "\n[old]-->%d %s %a\n" vi.vid vi.vname d_exp (exp));
+             ignore(Pretty.printf "\n[new]-->%d %s %a\n" vi.vid vi.vname d_exp (e'));*)
              IntMap.add vi.vid {rvi = vi; rval = e'} rMap
          | _ -> rMap)
     |_ -> rMap
@@ -73,23 +73,45 @@ let extractStmt (rMap : t ref) (s:stmt) =
 
 type loop_count_type = int IntMap.t
 
-let update_loop_count(s:stmt) (loop_count_map: loop_count_type ref) = 
+let update_loop_count(s:stmt) (loop_count_map: loop_count_type ref) (value: int)= 
 	try
 		let oldvalue = IntMap.find s.sid !loop_count_map in
-		IntMap.add s.sid (oldvalue+1) !loop_count_map
-	with Not_found -> IntMap.add s.sid 0 !loop_count_map
+		IntMap.add s.sid (oldvalue+value) !loop_count_map
+	with Not_found -> IntMap.add s.sid value !loop_count_map
 
-
-let find_next_stmt_loop(s:stmt) (loop_count_map: loop_count_type ref) : stmt =
-	try
-	 loop_count_map := update_loop_count s loop_count_map;
-		ignore(Printf.printf "Loop count: %d\n" (IntMap.find s.sid !loop_count_map));
-		List.hd s.succs;
+let rec loop_iterate (cur_stmt_id:int) (s:stmt) (count:int) (var_IntMap : t ref) (loop_count_map: loop_count_type ref)= 
+  extractStmt var_IntMap s; 
+        let loop_info = match s.skind with
+	Break (_) -> ("break",(List.hd s.succs));
+	| If (e,_,_,_) -> ("if",(if not (evalIfExp !var_IntMap e) then(List.hd (List.tl s.succs)) else (List.hd s.succs)));
+	| Loop (_,_,_,_) -> ("loop",(List.hd s.succs));
+	| _ -> ("other",(List.hd s.succs));
+	in	
+		if((compare (fst loop_info) "break") == 0) then ((count-1), s)
+		else if((compare (fst loop_info) "loop") == 0) then 
+			if (s.sid == cur_stmt_id) then loop_iterate cur_stmt_id (snd loop_info) (count+1) var_IntMap loop_count_map
+			else (
+				let inner_loop_info = loop_iterate s.sid (snd loop_info) 1 var_IntMap loop_count_map in
+				(
+					loop_count_map := update_loop_count s loop_count_map (fst inner_loop_info); 
+					ignore(Printf.printf "Inner Loop count:%d %d\n" s.sid (IntMap.find s.sid !loop_count_map));
+					loop_iterate cur_stmt_id (List.hd (snd inner_loop_info).succs) (count) var_IntMap loop_count_map
+				)
+			     )
+		else 
+			loop_iterate cur_stmt_id (snd loop_info) (count) var_IntMap loop_count_map;;
+		
+let find_next_stmt_loop(s:stmt) (loop_count_map: loop_count_type ref) (var_IntMap : t ref) : stmt =
+	try 	
+		let loop_count = loop_iterate s.sid s 0 var_IntMap loop_count_map in
+		(*loop_count_map := update_loop_count s loop_count_map;*)
+		loop_count_map := update_loop_count s loop_count_map (fst loop_count);
+		ignore(Printf.printf "Loop count:%d %d\n" s.sid (IntMap.find s.sid !loop_count_map));
+		(snd loop_count)	
 	with Not_found -> 
 		(List.hd s.succs);;	
 
 let rec iterate (s:stmt) (loop_count_map:loop_count_type ref) : unit = 
-	ignore(Pretty.printf "\n\n===STATEMENT: %a===\n" d_stmt s);
   extractStmt var_IntMap s;
 	let next_stmt = match s.skind with
 	Instr (a) -> List.hd s.succs;
@@ -99,7 +121,7 @@ let rec iterate (s:stmt) (loop_count_map:loop_count_type ref) : unit =
 	| Continue (_) -> List.hd s.succs;
 	| If (e,_,_,_) -> (if not (evalIfExp !var_IntMap e) then List.hd (List.tl s.succs) else List.hd s.succs);
 	| Switch (_,_,_,_) -> List.hd s.succs;
-	| Loop (_,_,_,_) -> find_next_stmt_loop s loop_count_map;
+	| Loop (_,_,_,_) -> find_next_stmt_loop s loop_count_map var_IntMap;
 	| _ -> List.hd s.succs;
 	in
 	iterate next_stmt loop_count_map;;
