@@ -5,8 +5,11 @@ int main() {
 	b=7;
 	j=a+b;
 	
-	while (i < 10) {
-	  printf("%d\n",i);
+	while (i < 1000) {
+	  for (j=0;j<10000;j++) {
+	    printf("test\n");
+	    i += 1;
+	  }
 	  i = i + a;
 	}
 
